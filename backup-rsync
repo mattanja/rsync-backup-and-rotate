@@ -1,0 +1,119 @@
+#!/bin/bash
+#
+# This script creates rsync backups of a server
+#
+# Original authors: https://www.heinlein-support.de
+# Original source: https://www.heinlein-support.de/projekte/rsync-backup/backup-rsync
+#
+# Translated and enhanced by Mattanja Kern <https://github.com/mattanja/rsync-backup-and-rotate>
+#
+# Usage: backup-rsync <fqdn-servername>
+#
+
+# ### Configuration
+# Check available space?
+CHECK_HDMINFREE=true
+HDMINFREE=95
+
+# Mount backup partition as readonly after writing the backup?
+MOUNT_RO=false
+MOUNT_DEVICE=/dev/md3
+
+# Backup path
+DATA_PATH=/home/backup
+
+# Additional rsync options.
+# Example: EXTRAOPT="--bwlimit=196" to limit bandwidth-usage
+EXTRAOPT=""
+
+# ### Aufrufparameter des Scripts ist ein FQDN-Hostname
+if [ -n "$1" ] ; then
+	SERVER="$1"
+else
+	echo "Error: Usage $0 <fqdn-hostname>"
+	exit
+fi
+
+if [ $SERVER = "localhost" ] ; then
+	RSYNCSERVERPATH="/"
+else
+	RSYNCSERVERPATH="$SERVER:/"
+fi
+
+# ### The excludelist file must exist in $DATA_PATH
+if [ -f $DATA_PATH/rsync-$SERVER ] ; then
+	EXCLUDES=$DATA_PATH/rsync-$SERVER
+	echo "Using excludelist $EXCLUDES"
+	logger "Using excludelist $EXCLUDES"
+else
+	# Fail
+	echo "Could not find excludelist $DATA_PATH/rsync-$SERVER"
+	logger "Could not find excludelist $DATA_PATH/rsync-$SERVER"
+	exit
+fi
+
+# ### Let´s Rock`n`Roll
+
+# Pruefe auf freien Plattenplatz
+GETPERCENTAGE='s/.* \([0-9]\{1,3\}\)%.*/\1/'
+if $CHECK_HDMINFREE ; then
+	KBISFREE=`df /$DATA_PATH | tail -n1 | sed -e "$GETPERCENTAGE"`
+	INODEISFREE=`df -i /$DATA_PATH | tail -n1 | sed -e "$GETPERCENTAGE"`
+	if [ $KBISFREE -ge $HDMINFREE -o $INODEISFREE -ge $HDMINFREE ] ; then
+		echo "Fatal: Not enough space left for rsyncing backups!"
+		logger "Fatal: Not enough space left for rsyncing backups!"
+		exit
+	fi
+fi
+
+# Festplatte rw remounten falls eingestellt
+if $MOUNT_RO ; then
+		if `mount -o remount,rw $MOUNT_DEVICE $DATA_PATH` ; then
+		echo mount -o remount,rw $MOUNT_DEVICE $DATA_PATH
+				echo "Error: Could not remount $MOUNT_DEVICE readwrite"
+				logger "Error: Could not remount $MOUNT_DEVICE readwrite"
+				exit
+		fi
+fi
+
+# Ggf. Verzeichnis anlegen
+if ! [ -d $DATA_PATH/$SERVER/daily.0 ] ; then
+		mkdir -p $DATA_PATH/$SERVER/daily.0
+fi
+
+# Los geht`s: rsync zieht ein Vollbackup
+echo "Starting rsync backup from $SERVER..."
+logger "Starting rsync backup from $SERVER..."
+
+rsync  -avz --numeric-ids -e ssh --delete --delete-excluded	\
+		--exclude-from="$EXCLUDES" $EXTRAOPT \
+		$RSYNCSERVERPATH $DATA_PATH/$SERVER/daily.0
+
+# Rückgabewert prüfen.
+# 0 = fehlerfrei,
+# 24 ist harmlos; tritt auf, wenn während der Laufzeit
+# von rsync noch (/tmp?) Dateien verändert oder gelöscht wurden.
+# Alles andere ist fatal -- siehe man (1) rsync
+if ! [ $? = 24 -o $? = 0 ] ; then
+	echo "Fatal: rsync finished $SERVER with errors!"
+	logger "Fatal: rsync finished $SERVER with errors!"
+fi
+
+# Verzeichnis anfassen, um Backup-Datum zu speichern
+touch $DATA_PATH/$SERVER/daily.0
+
+# Fertig!
+echo "Finished rsync backup from $SERVER..."
+logger "Finished rsync backup from $SERVER..."
+
+# Sicher ist sicher...
+sync
+
+# Festplatte ro remounten falls gewünscht!
+if $MOUNT_RO ; then
+		if `mount -o remount,ro $MOUNT_DEVICE $DATA_PATH` ; then
+				echo "Error: Could not remount $MOUNT_DEVICE readonly"
+				logger "Error: Could not remount $MOUNT_DEVICE readonly"
+				exit
+		fi
+fi
