@@ -5,5 +5,5 @@ backup-rotate YOURSERVER1 >> /home/backup/log-rotate-YOURSERVER1.log
 backup-rotate YOURSERVER2 >> /home/backup/log-rotate-YOURSERVER2.log
 
 # Start
-backup-rsync YOURSERVER1 &> /home/backup/log-rsync-YOURSERVER1.log
-backup-rsync YOURSERVER2 &> /home/backup/log-rsync-YOURSERVER2.log
+backup-rsync -e /path/to/excludefile YOURSERVER1 &> /home/backup/log-rsync-YOURSERVER1.log
+backup-rsync -e /path/to/excludefile2 YOURSERVER2 &> /home/backup/log-rsync-YOURSERVER2.log

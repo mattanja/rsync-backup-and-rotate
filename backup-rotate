@@ -7,7 +7,7 @@
 #
 # Translated and enhanced by Mattanja Kern <https://github.com/mattanja/rsync-backup-and-rotate>
 #
-# Usage: backup-rotate <fqdn-servername>
+# Usage: backup-rotate [-p /backup/path] <fqdn-servername>
 #
 
 # ### Configuration
@@ -19,8 +19,29 @@ HDMINFREE=95
 MOUNT_RO=false
 MOUNT_DEVICE=/dev/md3
 
-# Backup path
+# Backup path (server name and rotation dirs will be appended)
 DATA_PATH=/home/backup
+
+# Read parameter options
+OPTIND=1
+while getopts ":p:" opt; do
+	case $opt in
+		p)
+			DATA_PATH="$OPTARG"
+			;;
+		\?)
+			echo "Invalid option: -$OPTARG" >&2
+			logger "Invalid option: -$OPTARG" >&2
+			exit 1
+			;;
+		:)
+			echo "Option -$OPTARG requires an argument." >&2
+			logger "Option -$OPTARG requires an argument." >&2
+			exit 1
+			;;
+	esac
+done
+shift $((OPTIND-1))
 
 # ### First parameter of the script must be the FQDN or the host.
 if [ -n "$1" ] ; then
@@ -29,6 +50,10 @@ else
 	echo "Error: Usage $0 <fqdn-hostname>"
 	exit
 fi
+
+# Log config info
+echo "Backup path: $DATA_PATH"
+logger "Backup path: $DATA_PATH"
 
 # ### Let`s Rock`n`Roll....
 
@@ -68,7 +93,7 @@ if [ -d $DATA_PATH/$SERVER/daily.7 ] ; then
 fi
 
 # Shift all other daily backups ahead one day
-for OLD in 6 5 4 3 2 1  ; do
+for OLD in 6 5 4 3 2 1	; do
 	if [ -d $DATA_PATH/$SERVER/daily.$OLD ] ; then
 		NEW=$[ $OLD + 1 ]
 		# Backup last date

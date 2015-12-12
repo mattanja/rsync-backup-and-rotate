@@ -7,7 +7,7 @@
 #
 # Translated and enhanced by Mattanja Kern <https://github.com/mattanja/rsync-backup-and-rotate>
 #
-# Usage: backup-rsync <fqdn-servername>
+# Usage: backup-rsync [-e /etc/excludefile] [-o extra rsync options] [-p /backup/path] <fqdn-servername>
 #
 
 # ### Configuration
@@ -19,42 +19,78 @@ HDMINFREE=95
 MOUNT_RO=false
 MOUNT_DEVICE=/dev/md3
 
-# Backup path
+# Backup path (server name and rotation dirs will be appended)
 DATA_PATH=/home/backup
+
+# Liste von Dateipattern, die nicht gebackupt werden sollen
+EXCLUDES=/root/.excludeliste-rsync
 
 # Additional rsync options.
 # Example: EXTRAOPT="--bwlimit=196" to limit bandwidth-usage
 EXTRAOPT=""
 
-# ### Aufrufparameter des Scripts ist ein FQDN-Hostname
+# Read parameter options
+OPTIND=1
+while getopts ":e:o:p:" opt; do
+	case $opt in
+		e)
+			EXCLUDES="$OPTARG"
+			;;
+		o)
+			EXTRAOPT="$OPTARG"
+			;;
+		p)
+			DATA_PATH="$OPTARG"
+			;;
+		\?)
+			echo "Invalid option: -$OPTARG" >&2
+			logger "Invalid option: -$OPTARG" >&2
+			exit 1
+			;;
+		:)
+			echo "Option -$OPTARG requires an argument." >&2
+			logger "Option -$OPTARG requires an argument." >&2
+			exit 1
+			;;
+	esac
+done
+shift $((OPTIND-1))
+
+# ### first parameter after options must be FQDN of the server
 if [ -n "$1" ] ; then
 	SERVER="$1"
 else
 	echo "Error: Usage $0 <fqdn-hostname>"
-	exit
+	exit 1
 fi
 
+# Log config info
+echo "Extra options: $EXTRAOPT"
+logger "Extra options: $EXTRAOPT"
+echo "Backup path: $DATA_PATH"
+logger "Backup path: $DATA_PATH"
+
+# If server is localhost, use simple local path
 if [ $SERVER = "localhost" ] ; then
 	RSYNCSERVERPATH="/"
 else
 	RSYNCSERVERPATH="$SERVER:/"
 fi
 
-# ### The excludelist file must exist in $DATA_PATH
-if [ -f $DATA_PATH/rsync-$SERVER ] ; then
-	EXCLUDES=$DATA_PATH/rsync-$SERVER
-	echo "Using excludelist $EXCLUDES"
-	logger "Using excludelist $EXCLUDES"
+# Make sure file for excludelist exists
+if [ -f $EXCLUDES ] ; then
+	echo "Using excludelist: $EXCLUDES"
+	logger "Using excludelist: $EXCLUDES"
 else
 	# Fail
-	echo "Could not find excludelist $DATA_PATH/rsync-$SERVER"
-	logger "Could not find excludelist $DATA_PATH/rsync-$SERVER"
-	exit
+	echo "Could not find excludelist $EXCLUDES"
+	logger "Could not find excludelist $EXCLUDES"
+	exit 1
 fi
 
 # ### Let´s Rock`n`Roll
 
-# Pruefe auf freien Plattenplatz
+# Check disk space
 GETPERCENTAGE='s/.* \([0-9]\{1,3\}\)%.*/\1/'
 if $CHECK_HDMINFREE ; then
 	KBISFREE=`df /$DATA_PATH | tail -n1 | sed -e "$GETPERCENTAGE"`
@@ -62,58 +98,59 @@ if $CHECK_HDMINFREE ; then
 	if [ $KBISFREE -ge $HDMINFREE -o $INODEISFREE -ge $HDMINFREE ] ; then
 		echo "Fatal: Not enough space left for rsyncing backups!"
 		logger "Fatal: Not enough space left for rsyncing backups!"
+		exit 1
+	fi
+fi
+
+# Mount disk as read/write if configured
+if $MOUNT_RO ; then
+	if `mount -o remount,rw $MOUNT_DEVICE $DATA_PATH` ; then
+	echo mount -o remount,rw $MOUNT_DEVICE $DATA_PATH
+		echo "Error: Could not remount $MOUNT_DEVICE readwrite"
+		logger "Error: Could not remount $MOUNT_DEVICE readwrite"
 		exit
 	fi
 fi
 
-# Festplatte rw remounten falls eingestellt
-if $MOUNT_RO ; then
-		if `mount -o remount,rw $MOUNT_DEVICE $DATA_PATH` ; then
-		echo mount -o remount,rw $MOUNT_DEVICE $DATA_PATH
-				echo "Error: Could not remount $MOUNT_DEVICE readwrite"
-				logger "Error: Could not remount $MOUNT_DEVICE readwrite"
-				exit
-		fi
-fi
-
 # Ggf. Verzeichnis anlegen
 if ! [ -d $DATA_PATH/$SERVER/daily.0 ] ; then
-		mkdir -p $DATA_PATH/$SERVER/daily.0
+	mkdir -p $DATA_PATH/$SERVER/daily.0
 fi
 
 # Los geht`s: rsync zieht ein Vollbackup
 echo "Starting rsync backup from $SERVER..."
 logger "Starting rsync backup from $SERVER..."
 
-rsync  -avz --numeric-ids -e ssh --delete --delete-excluded	\
-		--exclude-from="$EXCLUDES" $EXTRAOPT \
-		$RSYNCSERVERPATH $DATA_PATH/$SERVER/daily.0
+rsync -avz --numeric-ids -e ssh \
+	--delete --delete-excluded	\
+	--exclude-from="$EXCLUDES" $EXTRAOPT \
+	$RSYNCSERVERPATH \
+	$DATA_PATH/$SERVER/daily.0
 
-# Rückgabewert prüfen.
-# 0 = fehlerfrei,
-# 24 ist harmlos; tritt auf, wenn während der Laufzeit
-# von rsync noch (/tmp?) Dateien verändert oder gelöscht wurden.
-# Alles andere ist fatal -- siehe man (1) rsync
+# Validate return code
+# 0 = no error,
+# 24 is fine, happens when files are being touched during sync (logs etc)
+# all other codes are fatal -- see man (1) rsync
 if ! [ $? = 24 -o $? = 0 ] ; then
 	echo "Fatal: rsync finished $SERVER with errors!"
 	logger "Fatal: rsync finished $SERVER with errors!"
 fi
 
-# Verzeichnis anfassen, um Backup-Datum zu speichern
+# Touch dir to set backup date
 touch $DATA_PATH/$SERVER/daily.0
 
-# Fertig!
+# Done
 echo "Finished rsync backup from $SERVER..."
 logger "Finished rsync backup from $SERVER..."
 
-# Sicher ist sicher...
+# Sync disks to make sure data is written to disk
 sync
 
-# Festplatte ro remounten falls gewünscht!
+# Remount disk as read-only
 if $MOUNT_RO ; then
-		if `mount -o remount,ro $MOUNT_DEVICE $DATA_PATH` ; then
-				echo "Error: Could not remount $MOUNT_DEVICE readonly"
-				logger "Error: Could not remount $MOUNT_DEVICE readonly"
-				exit
-		fi
+	if `mount -o remount,ro $MOUNT_DEVICE $DATA_PATH` ; then
+		echo "Error: Could not remount $MOUNT_DEVICE readonly"
+		logger "Error: Could not remount $MOUNT_DEVICE readonly"
+		exit
+	fi
 fi
