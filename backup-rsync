@@ -31,8 +31,11 @@ EXTRAOPT=""
 
 # Read parameter options
 OPTIND=1
-while getopts ":e:o:p:" opt; do
+while getopts ":s:e:o:p:" opt; do
 	case $opt in
+		s)
+			SSH_ADDRESS="$OPTARG"
+			;;
 		e)
 			EXCLUDES="$OPTARG"
 			;;
@@ -45,6 +48,7 @@ while getopts ":e:o:p:" opt; do
 		\?)
 			echo "Invalid option: -$OPTARG" >&2
 			logger "Invalid option: -$OPTARG" >&2
+			echo "Use backup-rsync [-s user@servername] [-e path/to/excludelist] [-o additional excludes] -p /target/data/path <servername>"
 			exit 1
 			;;
 		:)
@@ -58,7 +62,7 @@ shift $((OPTIND-1))
 
 # ### first parameter after options must be FQDN of the server
 if [ -n "$1" ] ; then
-	SERVER="$1"
+	TARGETNAME="$1"
 else
 	echo "Error: Usage $0 <fqdn-hostname>"
 	exit 1
@@ -70,11 +74,14 @@ logger "Extra options: $EXTRAOPT"
 echo "Backup path: $DATA_PATH"
 logger "Backup path: $DATA_PATH"
 
+if [ -n $SSH_ADDRESS ] ; then
+# If parameter -s is provided, use it as target address for rsync command (including username)
+	RSYNCSERVERPATH="$SSH_ADDRESS:/"
+elif [ $TARGETNAME = "localhost" ] ; then
 # If server is localhost, use simple local path
-if [ $SERVER = "localhost" ] ; then
 	RSYNCSERVERPATH="/"
 else
-	RSYNCSERVERPATH="$SERVER:/"
+	RSYNCSERVERPATH="$TARGETNAME:/"
 fi
 
 # Make sure file for excludelist exists
@@ -113,36 +120,36 @@ if $MOUNT_RO ; then
 fi
 
 # Ggf. Verzeichnis anlegen
-if ! [ -d $DATA_PATH/$SERVER/daily.0 ] ; then
-	mkdir -p $DATA_PATH/$SERVER/daily.0
+if ! [ -d $DATA_PATH/$TARGETNAME/daily.0 ] ; then
+	mkdir -p $DATA_PATH/$TARGETNAME/daily.0
 fi
 
 # Los geht`s: rsync zieht ein Vollbackup
-echo "Starting rsync backup from $SERVER..."
-logger "Starting rsync backup from $SERVER..."
+echo "Starting rsync backup from $TARGETNAME..."
+logger "Starting rsync backup from $TARGETNAME..."
 
 rsync -avz --numeric-ids -e ssh \
 	--delete --delete-excluded	\
 	--out-format="%t %f" \
 	--exclude-from="$EXCLUDES" $EXTRAOPT \
 	$RSYNCSERVERPATH \
-	$DATA_PATH/$SERVER/daily.0
+	$DATA_PATH/$TARGETNAME/daily.0
 
 # Validate return code
 # 0 = no error,
 # 24 is fine, happens when files are being touched during sync (logs etc)
 # all other codes are fatal -- see man (1) rsync
 if ! [ $? = 24 -o $? = 0 ] ; then
-	echo "Fatal: rsync finished $SERVER with errors!"
-	logger "Fatal: rsync finished $SERVER with errors!"
+	echo "Fatal: rsync finished $TARGETNAME with errors!"
+	logger "Fatal: rsync finished $TARGETNAME with errors!"
 fi
 
 # Touch dir to set backup date
-touch $DATA_PATH/$SERVER/daily.0
+touch $DATA_PATH/$TARGETNAME/daily.0
 
 # Done
-echo "Finished rsync backup from $SERVER..."
-logger "Finished rsync backup from $SERVER..."
+echo "Finished rsync backup from $TARGETNAME..."
+logger "Finished rsync backup from $TARGETNAME..."
 
 # Sync disks to make sure data is written to disk
 sync
