@@ -123,6 +123,7 @@ logger "Starting rsync backup from $SERVER..."
 
 rsync -avz --numeric-ids -e ssh \
 	--delete --delete-excluded	\
+	--out-format="%t %f" \
 	--exclude-from="$EXCLUDES" $EXTRAOPT \
 	$RSYNCSERVERPATH \
 	$DATA_PATH/$SERVER/daily.0
