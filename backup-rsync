@@ -74,13 +74,16 @@ logger "Extra options: $EXTRAOPT"
 echo "Backup path: $DATA_PATH"
 logger "Backup path: $DATA_PATH"
 
-if [ -n $SSH_ADDRESS ] ; then
+if [ -n "$SSH_ADDRESS" ] ; then
 # If parameter -s is provided, use it as target address for rsync command (including username)
+	echo "SSH_ADDRESS provided: $SSH_ADDRESS"
 	RSYNCSERVERPATH="$SSH_ADDRESS:/"
 elif [ $TARGETNAME = "localhost" ] ; then
 # If server is localhost, use simple local path
+	echo "Targetname localhost"
 	RSYNCSERVERPATH="/"
 else
+	echo "Targetname provided: $TARGETNAME"
 	RSYNCSERVERPATH="$TARGETNAME:/"
 fi
 
@@ -127,6 +130,13 @@ fi
 # Los geht`s: rsync zieht ein Vollbackup
 echo "Starting rsync backup from $TARGETNAME..."
 logger "Starting rsync backup from $TARGETNAME..."
+
+echo "rsync -avz --numeric-ids -e ssh \
+--delete --delete-excluded	\
+--out-format="%t %f" \
+--exclude-from="$EXCLUDES" $EXTRAOPT \
+$RSYNCSERVERPATH \
+$DATA_PATH/$TARGETNAME/daily.0"
 
 rsync -avz --numeric-ids -e ssh \
 	--delete --delete-excluded	\
