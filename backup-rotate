@@ -95,17 +95,27 @@ fi
 # Shift all other daily backups ahead one day
 for OLD in 6 5 4 3 2 1	; do
 	if [ -d $DATA_PATH/$SERVER/daily.$OLD ] ; then
-		NEW=$[ $OLD + 1 ]
+		NEW=$(($OLD+1))
+
+		echo "Moving $DATA_PATH/$SERVER/daily.$OLD to $DATA_PATH/$SERVER/daily.$NEW"
+		logger "Moving $DATA_PATH/$SERVER/daily.$OLD to $DATA_PATH/$SERVER/daily.$NEW"
+
 		# Backup last date
-		touch $DATA_PATH/.timestamp -r $DATA_PATH/$SERVER/daily.$OLD
+		# ISSUE: touch does not support options on synology (busybox) system
+		#touch $DATA_PATH/.timestamp -r $DATA_PATH/$SERVER/daily.$OLD
 		mv $DATA_PATH/$SERVER/daily.$OLD $DATA_PATH/$SERVER/daily.$NEW
 		# Restore timestamp
-		touch $DATA_PATH/$SERVER/daily.$NEW -r $DATA_PATH/.timestamp
+		#touch $DATA_PATH/$SERVER/daily.$NEW -r $DATA_PATH/.timestamp
+
 	fi
 done
 
 # Copy hardlinked snapshot of level 0 to level 1 (before updating 0 via rsync)
 if [ -d $DATA_PATH/$SERVER/daily.0 ] ; then
+
+	echo "Copying hardlinks from $DATA_PATH/$SERVER/daily.0 to $DATA_PATH/$SERVER/daily.1"
+	logger "Copying hardlinks from $DATA_PATH/$SERVER/daily.0 to $DATA_PATH/$SERVER/daily.1"
+
 	cp -al $DATA_PATH/$SERVER/daily.0 $DATA_PATH/$SERVER/daily.1
 fi
 
